@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trap Devil — A Deceptive Platformer</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,Segoe UI,Arial,sans-serif}
+  body{background:#0e0e14;color:#eee;min-height:100vh;display:flex;flex-direction:column;align-items:center}
+  header{width:100%;max-width:960px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  h1{font-size:20px;letter-spacing:.5px}
+  h1 span{color:#ff4d5a}
+  .panel{background:#171722;border:1px solid #2b2b3a;border-radius:12px;padding:12px;width:100%;max-width:960px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button,select,input{background:#232336;color:#eee;border:1px solid #3a3a52;border-radius:8px;padding:8px 10px;font-size:13px}
+  button:hover{background:#2e2e46;cursor:pointer}
+  button.primary{background:#ff4d5a;border-color:#ff4d5a;color:#fff;font-weight:700}
+  canvas{display:block;background:#101018;border:1px solid #2b2b3a;border-radius:12px;touch-action:none}
+  .hint{font-size:12px;color:#9aa}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
+  .modal.open{display:flex}
+  .card{background:#171722;border:1px solid #3a3a52;border-radius:14px;padding:18px;max-width:640px;width:100%}
+  textarea{width:100%;height:110px;background:#0e0e14;color:#cde;border:1px solid #3a3a52;border-radius:8px;padding:8px;font-family:monospace;font-size:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;max-height:180px;overflow:auto;margin-top:8px}
+  .lv{padding:6px;border:1px solid #333;border-radius:8px;background:#20202e;cursor:pointer;text-align:center;font-size:12px}
+  .lv.done{border-color:#4ade80;color:#4ade80}
+  .tag{font-size:11px;color:#889}
+  kbd{background:#26263a;border:1px solid #3a3a52;border-bottom-width:2px;border-radius:5px;padding:1px 5px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1>TRAP <span>DEVIL</span> — don’t trust the floor</h1>
+  <div class="row">
+    <button id="menuBtn">Menu</button>
+    <button id="restartBtn">Restart <kbd>R</kbd></button>
+    <button id="editorBtn">Editor</button>
+  </div>
+</header>
+
+<div class="panel" id="hud">
+  <div class="row">
+    <b id="modeLabel">Campaign</b>
+    <span id="levelLabel">Level 1 / 240</span>
+    <span id="deathsLabel">Deaths: 0</span>
+    <span id="timerLabel">0.0s</span>
+    <span class="hint">P1: <kbd>A</kbd><kbd>D</kbd> move, <kbd>W</kbd> jump · P2: <kbd>←</kbd><kbd>→</kbd> move, <kbd>↑</kbd> jump</span>
+  </div>
+</div>
+
+<canvas id="game" width="960" height="540"></canvas>
+
+<div class="panel">
+  <div class="row">
+    <button class="primary" id="playBtn">Play Campaign</button>
+    <button id="twoPlayerBtn">Local 2-Player</button>
+    <button id="endlessBtn">Endless Mode</button>
+    <button id="levelsBtn">Level Select</button>
+    <button id="shareBtn">Share Code</button>
+    <button id="loadBtn">Load Code</button>
+  </div>
+  <div class="hint" style="margin-top:8px">Reach the green door. Floors may vanish, ceilings may fall, spikes may rise, and “safe” walls may move. In 2-player mode, either player can reach the door—but you can also sabotage each other.</div>
+</div>
+
+<div class="modal" id="editorModal">
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h2>Level Editor</h2><button id="closeEditor">Close</button></div>
+    <div class="row" style="margin:10px 0">
+      <label class="tag">Tool:</label>
+      <select id="tool">
+        <option value="floor">Floor</option>
+        <option value="spike">Spike</option>
+        <option value="saw">Saw</option>
+        <option value="spring">Spring</option>
+        <option value="vanish">Vanish Floor</option>
+        <option value="fallCeiling">Falling Ceiling</option>
+        <option value="risingSpike">Rising Spike</option>
+        <option value="movingWall">Moving Wall</option>
+        <option value="trigger">Trigger Zone</option>
+        <option value="spawn">Player Spawn</option>
+        <option value="spawn2">Player 2 Spawn</option>
+        <option value="door">Exit Door</option>
+        <option value="erase">Erase</option>
+      </select>
+      <button id="clearLevel">Clear</button>
+      <button id="testLevel">Test Level</button>
+      <button id="saveLevel">Save to Browser</button>
+      <button id="exportLevel">Export Code</button>
+    </div>
+    <div class="hint">Click/drag on the canvas to place tiles. Traps activate when a player enters a Trigger Zone. Exported codes can be imported with “Load Code”.</div>
+    <textarea id="codeBox" placeholder="Paste or copy a level code here"></textarea>
+    <div class="row" style="margin-top:8px"><button id="importCode">Import Code</button><span class="hint" id="editorMsg"></span></div>
+  </div>
+</div>
+
+<div class="modal" id="levelsModal">
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h2>Level Select</h2><button id="closeLevels">Close</button></div>
+    <div class="hint">240 campaign stages, generated deterministically from each level number. Completed levels are marked green.</div>
+    <div class="grid" id="levelGrid"></div>
+  </div>
+</div>
+
+<script>
+const cvs=document.getElementById('game'),ctx=cvs.getContext('2d');
+const W=cvs.width,H=cvs.height,T=30,COLS=Math.floor(W/T),ROWS=Math.floor(H/T);
+const state={mode:'campaign',level:1,deaths:0,time:0,twoPlayer:false,editor:false,paused:false,completed:JSON.parse(localStorage.getItem('trapdevil_done')||'[]')};
+let level=null,players=[],particles=[],msg='',msgT=0;
+
+function rng(seed){let s=seed>>>0;return()=>{s^=s<<13;s^=s>>>17;s^=s<<5;return((s>>>0)%100000)/100000}}
+function makeCampaign(n){
+  const r=rng(n*7919+13),g=emptyGrid();
+  for(let x=0;x<COLS;x++)g[ROWS-1][x]='floor';
+  for(let y=0;y<ROWS;y++){g[y][0]='floor';g[y][COLS-1]='floor'}
+  g[ROWS-2][2]='spawn';g[ROWS-2][COLS-3]='door';
+  const traps=Math.min(18,3+Math.floor(n/8));
+  for(let i=0;i<traps;i++){
+    const x=4+Math.floor(r()*(COLS-9)),y=ROWS-2-Math.floor(r()*4);
+    if(g[y][x]!=='empty')continue;
+    const roll=r();
+    if(roll<.22)g[y][x]='spike';
+    else if(roll<.38)g[y][x]='saw';
+    else if(roll<.52)g[y][x]='vanish';
+    else if(roll<.64)g[y][x]='spring';
+    else if(roll<.76&&y>2)g[y-1][x]='fallCeiling';
+    else if(roll<.88)g[y][x]='risingSpike';
+    else g[y][x]='movingWall';
+    if(r()<.45&&g[y][x]!=='spring'){const tx=Math.max(2,x-2);if(g[y][tx]==='empty')g[y][tx]='trigger'}
+  }
+  for(let x=2;x<COLS-2;x++){if(g[ROWS-2][x]==='fallCeiling'||g[ROWS-2][x]==='movingWall')g[ROWS-2][x]='floor'}
+  g[ROWS-2][2]='spawn';g[ROWS-2][COLS-3]='door';
+  return {grid:g,name:'Campaign '+n,author:'Trap Devil'};
+}
+function emptyGrid(){return Array.from({length:ROWS},()=>Array(COLS).fill('empty'))}
+
+function loadLevel(obj,mode){
+  level=JSON.parse(JSON.stringify(obj));state.mode=mode||state.mode;
+  level.grid=level.grid||emptyGrid();state.time=0;particles=[];
+  spawnPlayers();updateHud();
+}
+function spawnPlayers(){
+  players=[];let p1=null,p2=null;
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    if(level.grid[y][x]==='spawn')p1={x:x*T+5,y:y*T+2,vx:0,vy:0,onGround:false,alive:true,face:1};
+    if(level.grid[y][x]==='spawn2')p2={x:x*T+5,y:y*T+2,vx:0,vy:0,onGround:false,alive:true,face:-1};
+  }
+  if(!p1){const s=findTile('spawn')||{x:2,y:ROWS-2};p1={x:s.x*T+5,y:s.y*T+2,vx:0,vy:0,onGround:false,alive:true,face:1}}
+  players.push(p1);if(state.twoPlayer)players.push(p2||{x:p1.x+40,y:p1.y,vx:0,vy:0,onGround:false,alive:true,face:-1});
+}
+function findTile(t){for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)if(level.grid[y][x]===t)return{x,y};return null}
+
+const keys={};
+addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();
+  if(e.code==='KeyR')restart();
+});
+addEventListener('keyup',e=>keys[e.code]=false);
+
+const GRAV=.62,JUMP=-11.2,SPEED=3.4;
+function solidAt(px,py,self){
+  const x=Math.floor(px/T),y=Math.floor(py/T);
+  if(x<0||x>=COLS||y<0||y>=ROWS)return true;
+  const t=level.grid[y][x];
+  return ['floor','vanish','movingWall','fallCeiling'].includes(t)&&!(t==='vanish'&&level.hidden?.[y+'_'+x]);
+}
+function rectHitsSolid(p){
+  const pts=[[p.x+3,p.y],[p.x+T-7,p.y],[p.x+3,p.y+T-1],[p.x+T-7,p.y+T-1],[p.x+3,p.y+T/2],[p.x+T-7,p.y+T/2]];
+  return pts.some(([x,y])=>solidAt(x,y,p));
+}
+function updatePlayer(p,idx){
+  if(!p.alive)return;
+  const left=idx===0?(keys.KeyA):(keys.ArrowLeft),right=idx===0?(keys.KeyD):(keys.ArrowRight),jump=idx===0?(keys.KeyW):(keys.ArrowUp);
+  p.vx=(right?SPEED:0)-(left?SPEED:0);
+  if(p.vx)p.face=Math.sign(p.vx);
+  if(jump&&p.onGround){p.vy=JUMP;p.onGround=false}
+  p.vy=Math.min(p.vy+GRAV,14);
+  p.x+=p.vx;if(rectHitsSolid(p)){p.x-=p.vx;p.vx=0}
+  p.y+=p.vy;p.onGround=false;
+  if(rectHitsSolid(p)){
+    if(p.vy>0){p.y-=p.vy;p.onGround=true}else p.y-=p.vy;
+    p.vy=0;
+  }
+  const tx=Math.floor((p.x+T/2)/T),ty=Math.floor((p.y+T/2)/T),tile=level.grid[ty]?.[tx];
+  if(tile==='spike'||tile==='risingSpike'&&level.armed?.[ty+'_'+tx])kill(p);
+  if(tile==='saw')kill(p);
+  if(tile==='spring'&&p.vy>=0){p.vy=-16;p.onGround=false;burst(tx*T+T/2,ty*T+T,'#facc15')}
+  if(tile==='trigger'&&!level.fired?.[ty+'_'+tx]){
+    level.fired=level.fired||{};level.fired[ty+'_'+tx]=true;
+    fireTrapsNear(tx,ty);burst(tx*T+T/2,ty*T+T/2,'#ff4d5a');
+  }
+  if(tile==='door'&&players.every(q=>!state.twoPlayer||q.alive)){
+    if(state.twoPlayer&&players.filter(q=>q.alive).length<2)return;
+    completeLevel();
+  }
+  if(p.y>H+60)kill(p);
+}
+function fireTrapsNear(cx,cy){
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const t=level.grid[y][x],d=Math.abs(x-cx)+Math.abs(y-cy);
+    if(d<=7&&(t==='vanish'||t==='fallCeiling'||t==='risingSpike'||t==='movingWall')){
+      level.armed=level.armed||{};level.armed[y+'_'+x]=true;
+      if(t==='vanish')setTimeout(()=>{level.hidden=level.hidden||{};level.hidden[y+'_'+x]=true;burst(x*T+T/2,y*T+T/2,'#888')},350);
+      if(t==='fallCeiling')setTimeout(()=>{level.dropped=level.dropped||{};level.dropped[y+'_'+x]=true},250);
+      if(t==='risingSpike')setTimeout(()=>{level.risen=level.risen||{};level.risen[y+'_'+x]=true},180);
+      if(t==='movingWall')setTimeout(()=>{level.shifted=level.shifted||{};level.shifted[y+'_'+x]=true},300);
+    }
+  }
+}
+function kill(p){if(!p.alive)return;p.alive=false;state.deaths++;burst(p.x+T/2,p.y+T/2,'#ff4d5a');showMsg('Ouch! Press R or click Restart');setTimeout(()=>{if(!players.some(q=>q.alive))restart()},650)}
+function burst(x,y,c){for(let i=0;i<14;i++)particles.push({x,y,vx:(Math.random()-.5)*7,vy:(Math.random()-.7)*7,life:30,c})}
+function showMsg(s){msg=s;msgT=140}
+
+function restart(){if(level)loadLevel(level, state.mode)}
+function completeLevel(){
+  if(state.mode==='campaign'){
+    if(!state.completed.includes(state.level)){state.completed.push(state.level);localStorage.setItem('trapdevil_done',JSON.stringify(state.completed))}
+    if(state.level<240){state.level++;loadLevel(makeCampaign(state.level),'campaign');showMsg('Level '+state.level+' — good luck.')}
+    else showMsg('You escaped all 240 stages!');
+  }else if(state.mode==='endless'){state.level++;loadLevel(makeCampaign(1000+state.level*31),'endless');showMsg('Endless depth '+state.level)}
+  else showMsg('Custom level complete!');
+}
+function updateHud(){
+  document.getElementById('modeLabel').textContent=state.mode==='campaign'?'Campaign':state.mode==='endless'?'Endless':'Custom';
+  document.getElementById('levelLabel').textContent=state.mode==='endless'?('Depth '+state.level):('Level '+state.level+' / 240');
+  document.getElementById('deathsLabel').textContent='Deaths: '+state.deaths;
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#101018';ctx.fillRect(0,0,W,H);
+  if(!level){ctx.fillStyle='#889';ctx.font='18px system-ui';ctx.textAlign='center';ctx.fillText('Choose Campaign, Endless, or Editor',W/2,H/2);return}
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const t=level.grid[y][x],px=x*T,py=y*T,key=y+'_'+x;
+    if(t==='empty')continue;
+    if(t==='floor'){ctx.fillStyle='#3b3b52';ctx.fillRect(px,py,T,T);ctx.fillStyle='#4d4d6b';ctx.fillRect(px,py,T,4)}
+    else if(t==='vanish'){if(level.hidden?.[key])continue;ctx.fillStyle=level.armed?.[key]?'#7f1d1d':'#4b5563';ctx.fillRect(px,py,T,T)}
+    else if(t==='spike'){ctx.fillStyle='#ef4444';drawSpikes(px,py,T,level.risen?.[key]?-8:0)}
+    else if(t==='risingSpike'){ctx.fillStyle=level.risen?.[key]?'#ef4444':'#7f1d1d';drawSpikes(px,py,T,level.risen?.[key]?-10:0)}
+    else if(t==='saw'){ctx.save();ctx.translate(px+T/2,py+T/2);ctx.rotate(state.time*.15);ctx.fillStyle='#cbd5e1';for(let i=0;i<8;i++){ctx.rotate(Math.PI/4);ctx.fillRect(-3,-T/2,6,T/2)}ctx.fillStyle='#64748b';ctx.beginPath();ctx.arc(0,0,7,0,7);ctx.fill();ctx.restore()}
+    else if(t==='spring'){ctx.fillStyle='#facc15';ctx.fillRect(px+5,py+T-10,T-10,10);ctx.fillStyle='#a16207';ctx.fillRect(px+8,py+T-16,T-16,6)}
+    else if(t==='fallCeiling'){const dy=level.dropped?.[key]?T:0;ctx.fillStyle='#8b5cf6';ctx.fillRect(px,py+dy,T,T);ctx.fillStyle='#a78bfa';ctx.fillRect(px,py+dy,T,4)}
+    else if(t==='movingWall'){const dx=level.shifted?.[key]?T:0;ctx.fillStyle='#0ea5e9';ctx.fillRect(px+dx,py,T,T)}
+    else if(t==='trigger'){ctx.strokeStyle=level.fired?.[key]?'#333':'#ff4d5a';ctx.setLineDash([4,4]);ctx.strokeRect(px+2,py+2,T-4,T-4);ctx.setLineDash([])}
+    else if(t==='door'){ctx.fillStyle='#22c55e';ctx.fillRect(px+4,py,T-8,T);ctx.fillStyle='#065f46';ctx.fillRect(px+T-12,py+T/2-3,5,6)}
+    else if(t==='spawn'){ctx.fillStyle='#38bdf8';ctx.fillRect(px+6,py+8,T-12,T-8)}
+    else if(t==='spawn2'){ctx.fillStyle='#f472b6';ctx.fillRect(px+6,py+8,T-12,T-8)}
+  }
+  players.forEach((p,i)=>{
+    if(!p.alive)return;
+    ctx.fillStyle=i===0?'#38bdf8':'#f472b6';
+    ctx.fillRect(p.x,p.y,T-6,T-2);
+    ctx.fillStyle='#fff';ctx.fillRect(p.x+(p.face>0?T-16:6),p.y+7,5,5);
+  });
+  particles.forEach(q=>{ctx.globalAlpha=Math.max(q.life/30,0);ctx.fillStyle=q.c;ctx.fillRect(q.x,q.y,4,4);ctx.globalAlpha=1});
+  if(msgT>0){ctx.fillStyle='rgba(0,0,0,.65)';ctx.fillRect(W/2-190,H-52,380,32);ctx.fillStyle='#fff';ctx.font='14px system-ui';ctx.textAlign='center';ctx.fillText(msg,W/2,H-31)}
+}
+function drawSpikes(px,py,size,offset){
+  ctx.beginPath();
+  for(let i=0;i<3;i++){const bx=px+i*(size/3);ctx.moveTo(bx,py+size);ctx.lineTo(bx+size/6,py+offset);ctx.lineTo(bx+size/3,py+size)}
+  ctx.fill();
+}
+function loop(){
+  state.time+=1/60;if(msgT>0)msgT--;
+  if(level&&!state.editor){players.forEach(updatePlayer)}
+  particles.forEach(q=>{q.x+=q.vx;q.y+=q.vy;q.vy+=.25;q.life--});
+  particles=particles.filter(q=>q.life>0);
+  document.getElementById('timerLabel').textContent=state.time.toFixed(1)+'s';
+  draw();requestAnimationFrame(loop);
+}
+
+let painting=false;
+function canvasPos(e){const r=cvs.getBoundingClientRect();return{x:Math.floor((e.clientX-r.left)/(r.width/W)),y:Math.floor((e.clientY-r.top)/(r.height/H))}}
+cvs.addEventListener('pointerdown',e=>{if(!state.editor)return;painting=true;paint(e)});
+cvs.addEventListener('pointermove',e=>{if(painting&&state.editor)paint(e)});
+addEventListener('pointerup',()=>painting=false);
+function paint(e){
+  const{x,y}=canvasPos(e);if(!level)return;
+  const tool=document.getElementById('tool').value;
+  if(tool==='erase')level.grid[y][x]='empty';else level.grid[y][x]=tool;
+}
+function openEditor(){
+  state.editor=true;state.twoPlayer=false;
+  if(!level||state.mode!=='custom')loadLevel({grid:emptyGrid(),name:'Custom'},'custom');
+  document.getElementById('editorModal').classList.add('open');
+}
+document.getElementById('editorBtn').onclick=openEditor;
+document.getElementById('closeEditor').onclick=()=>{state.editor=false;document.getElementById('editorModal').classList.remove('open')};
+document.getElementById('clearLevel').onclick=()=>{level.grid=emptyGrid();level.hidden=level.armed=level.fired=level.dropped=level.risen=level.shifted=null;spawnPlayers()};
+document.getElementById('testLevel').onclick=()=>{state.editor=false;document.getElementById('editorModal').classList.remove('open');state.mode='custom';spawnPlayers();showMsg('Testing custom level')};
+document.getElementById('saveLevel').onclick=()=>{
+  const custom=JSON.parse(localStorage.getItem('trapdevil_custom')||'[]');
+  custom.push(level);localStorage.setItem('trapdevil_custom',JSON.stringify(custom));
+  document.getElementById('editorMsg').textContent='Saved locally ('+custom.length+' custom levels).';
+};
+document.getElementById('exportLevel').onclick=()=>{
+  const code=btoa(unescape(encodeURIComponent(JSON.stringify(level))));
+  document.getElementById('codeBox').value=code;document.getElementById('editorMsg').textContent='Code exported—copy it to share.';
+};
+document.getElementById('importCode').onclick=()=>{
+  try{loadLevel(JSON.parse(decodeURIComponent(escape(atob(document.getElementById('codeBox').value.trim())))),'custom');state.editor=false;document.getElementById('editorModal').classList.remove('open');showMsg('Custom level loaded')}
+  catch(err){document.getElementById('editorMsg').textContent='Invalid level code.'}
+};
+
+document.getElementById('playBtn').onclick=()=>{state.twoPlayer=false;state.level=1;loadLevel(makeCampaign(1),'campaign')};
+document.getElementById('twoPlayerBtn').onclick=()=>{state.twoPlayer=true;state.level=1;loadLevel(makeCampaign(1),'campaign');showMsg('2-player: first alive player to door clears it')};
+document.getElementById('endlessBtn').onclick=()=>{state.twoPlayer=false;state.level=1;loadLevel(makeCampaign(1031),'endless')};
+document.getElementById('restartBtn').onclick=restart;
+document.getElementById('menuBtn').onclick=()=>{level=null;state.editor=false};
+document.getElementById('levelsBtn').onclick=()=>{buildLevelGrid();document.getElementById('levelsModal').classList.add('open')};
+document.getElementById('closeLevels').onclick=()=>document.getElementById('levelsModal').classList.remove('open');
+document.getElementById('shareBtn').onclick=()=>{if(level){document.getElementById('codeBox').value=btoa(unescape(encodeURIComponent(JSON.stringify(level))));openEditor();document.getElementById('editorMsg').textContent='Current level code ready.'}};
+document.getElementById('loadBtn').onclick=openEditor;
+function buildLevelGrid(){
+  const g=document.getElementById('levelGrid');g.innerHTML='';
+  for(let i=1;i<=240;i++){
+    const d=document.createElement('div');d.className='lv'+(state.completed.includes(i)?' done':'');d.textContent=i;
+    d.onclick=()=>{state.twoPlayer=false;state.level=i;loadLevel(makeCampaign(i),'campaign');document.getElementById('levelsModal').classList.remove('open')};
+    g.appendChild(d);
+  }
+}
+loadLevel(makeCampaign(1),'campaign');
+loop();
+</script>
+</body>
+</html>
